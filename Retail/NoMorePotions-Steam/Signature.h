@@ -5,29 +5,6 @@
 
 inline bool sigValid = true;
 
-inline void* sigScan(const char* signature, const char* mask, size_t sigSize, void* memory, const size_t memorySize)
-{
-	if (sigSize == 0)
-		sigSize = strlen(mask);
-
-	for (size_t i = 0; i < memorySize; i++)
-	{
-		char* currMemory = (char*)memory + i;
-
-		size_t j;
-		for (j = 0; j < sigSize; j++)
-		{
-			if (mask[j] != '?' && signature[j] != currMemory[j])
-				break;
-		}
-
-		if (j == sigSize)
-			return currMemory;
-	}
-
-	return nullptr;
-}
-
 inline MODULEINFO moduleInfo;
 
 inline const MODULEINFO& getModuleInfo()
@@ -41,46 +18,42 @@ inline const MODULEINFO& getModuleInfo()
 	return moduleInfo;
 }
 
-inline void* sigScan(const char* signature, const char* mask, void* hint)
+inline void* sigScan(const char* signature, const char* mask)
 {
 	const MODULEINFO& info = getModuleInfo();
-	const size_t sigSize = strlen(mask);
+	const size_t length = strlen(mask);
 
-	// Ensure hint address is within the process memory region so there are no crashes.
-	if ((hint >= info.lpBaseOfDll) && ((char*)hint + sigSize <= (char*)info.lpBaseOfDll + info.SizeOfImage))
+	for (size_t i = 0; i < info.SizeOfImage; i++)
 	{
-		void* result = sigScan(signature, mask, sigSize, hint, sigSize);
+		char* memory = (char*)info.lpBaseOfDll + i;
 
-		if (result)
-			return result;
+		size_t j;
+		for (j = 0; j < length; j++)
+		{
+			if (mask[j] != '?' && signature[j] != memory[j])
+				break;
+		}
+
+		if (j == length)
+			return memory;
 	}
 
-	return sigScan(signature, mask, sigSize, info.lpBaseOfDll, info.SizeOfImage);
+	return nullptr;
 }
 
-#define SIG_SCAN(x, y, ...) \
+#define SIG_SCAN(x, ...) \
 	void* x(); \
 	void* x##Addr = x(); \
 	void* x() \
 	{ \
-		constexpr const char* x##Data[] = { __VA_ARGS__ }; \
-		constexpr size_t x##Size = _countof(x##Data); \
+		static const char* x##Data[] = { __VA_ARGS__ }; \
 		if (!x##Addr) \
 		{ \
-			if constexpr (x##Size == 2) \
+			for (int i = 0; i < _countof(x##Data); i += 2) \
 			{ \
-				x##Addr = sigScan(x##Data[0], x##Data[1], (void*)(y)); \
+				x##Addr = sigScan(x##Data[i], x##Data[i + 1]); \
 				if (x##Addr) \
 					return x##Addr; \
-			} \
-			else \
-			{ \
-				for (int i = 0; i < x##Size; i += 2) \
-				{ \
-					x##Addr = sigScan(x##Data[i], x##Data[i + 1], (void*)(y)); \
-					if (x##Addr) \
-						return x##Addr; \
-				} \
 			} \
 			sigValid = false; \
 		} \
